@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Create $GRANNY Token</title>
+  <style>
+    body{font-family:'Inter',-apple-system,sans-serif;background:#0a0a0f;color:#e8e8ec;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}
+    .card{background:#12121a;border:1px solid #2a2a3a;border-radius:16px;padding:32px;max-width:500px;width:100%}
+    h1{font-size:24px;margin-bottom:8px}
+    .glow{background:linear-gradient(135deg,#a855f7,#f59e0b);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+    p{color:#6b7280;font-size:14px;margin-bottom:24px;line-height:1.6}
+    .btn{background:linear-gradient(135deg,#a855f7,#7c3aed);color:white;font-weight:600;padding:12px 24px;border-radius:12px;border:none;cursor:pointer;font-size:16px;width:100%;font-family:inherit}
+    .btn:hover{box-shadow:0 0 20px rgba(168,85,247,0.3)}
+    .btn:disabled{opacity:.4;cursor:not-allowed}
+    .btn-secondary{background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.3);color:#c084fc;margin-top:12px}
+    .status{margin-top:20px;padding:12px;border-radius:10px;font-size:14px}
+    .status.info{background:rgba(168,85,247,0.1);border:1px solid rgba(168,85,247,0.2);color:#c084fc}
+    .status.succ{background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.2);color:#22c55e}
+    .status.err{background:rgba(239,68,68,0.1);border:1px solid rgba(239,68,68,0.2);color:#ef4444}
+    .hidden{display:none}
+    .info-row{display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid #2a2a3a;font-size:13px}
+    .info-row:last-child{border-bottom:none}
+    .info-label{color:#6b7280}
+    .info-value{font-family:monospace;word-break:break-all;text-align:right;max-width:60%}
+    .spinner{display:inline-block;width:16px;height:16px;border:2px solid rgba(255,255,255,0.3);border-top-color:white;border-radius:50%;animation:spin .8s linear infinite;margin-right:8px;vertical-align:middle}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 class="glow">Create <span class="glow">$GRANNY</span> Token</h1>
+    <p>This will create the $GRANNY SPL token on Solana devnet and mint 1,000,000,000 tokens to your wallet. All transactions are signed by your Phantom wallet.</p>
+
+    <div id="info-section">
+      <div class="info-row"><span class="info-label">Network</span><span class="info-value">Solana Devnet</span></div>
+      <div class="info-row"><span class="info-label">Decimals</span><span class="info-value">9</span></div>
+      <div class="info-row"><span class="info-label">Total Supply</span><span class="info-value">1,000,000,000</span></div>
+      <div class="info-row"><span class="info-label">Cost</span><span class="info-value">~0.04 SOL (rent)</span></div>
+    </div>
+
+    <button id="create-btn" class="btn" style="margin-top:24px">Connect Phantom & Create Token</button>
+    <button id="go-swap-btn" class="btn btn-secondary hidden" onclick="window.location.href='index.html'">Go to Swap Page</button>
+
+    <div id="status" class="status hidden"></div>
+  </div>
+
+  <script src="https://unpkg.com/@solana/web3.js@1.98.4/lib/index.iife.min.js"></script>
+  <script>
+    const TOKEN_PROGRAM_ID = 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA';
+    const SYSVAR_RENT = 'SysvarRent111111111111111111111111111111111';
+    const DEVNET_URL = 'https://api.devnet.solana.com';
+    const DECIMALS = 9;
+    const SUPPLY = 1_000_000_000;
+
+    const $ = id => document.getElementById(id);
+
+    function showStatus(msg, type) {
+      $('status').textContent = msg;
+      $('status').className = 'status ' + (type || 'info');
+      $('status').classList.remove('hidden');
+    }
+    function hideStatus() { $('status').classList.add('hidden'); }
+
+    async function getProvider() {
+      if (window.solana && window.solana.isPhantom) return window.solana;
+      throw new Error('Please install Phantom wallet');
+    }
+
+    async function createToken() {
+      const createBtn = $('create-btn');
+      createBtn.disabled = true;
+
+      try {
+        showStatus('Waiting for Phantom connection...', 'info');
+        const provider = await getProvider();
+
+        // Connect wallet
+        const resp = await provider.connect();
+        const walletPubkey = resp.publicKey;
+
+        showStatus('Wallet connected: ' + walletPubkey.toBase58().slice(0,8) + '... Creating token...', 'info');
+
+        const connection = new solanaWeb3.Connection(DEVNET_URL, 'confirmed');
+
+        // Generate mint keypair
+        const mintKeypair = solanaWeb3.Keypair.generate();
+        const mintPubkey = mintKeypair.publicKey;
+
+        showStatus('Generated mint address. Preparing transaction...', 'info');
+
+        // Get rent for mint account (82 bytes)
+        const mintRent = await connection.getMinimumBalanceForRentExemption(82);
+
+        // Get rent for token account (~165 bytes)
+        const tokenAccountRent = await connection.getMinimumBalanceForRentExemption(165);
+
+        const TOTAL_COST = mintRent + tokenAccountRent + 5000; // extra for fees
+
+        const balance = await connection.getBalance(walletPubkey);
+        if (balance < TOTAL_COST) {
+          throw new Error('Need at least ' + (TOTAL_COST / 1e9).toFixed(3) + ' SOL. You have ' + (balance / 1e9).toFixed(3) + ' SOL');
+        }
+
+        // 1. Create mint account
+        const createAccountIx = solanaWeb3.SystemProgram.createAccount({
+          fromPubkey: walletPubkey,
+          newAccountPubkey: mintPubkey,
+          lamports: mintRent,
+          space: 82,
+          programId: new solanaWeb3.PublicKey(TOKEN_PROGRAM_ID),
+        });
+
+        // 2. Initialize mint
+        // SPL Token initializeMint: [instruction(1 byte), decimals(1), mint_auth(32), option(1), freeze_auth(32)]
+        const initMintData = Buffer.alloc(67);
+        initMintData.writeUInt8(1, 0); // instruction 1 = initializeMint
+        initMintData.writeUInt8(DECIMALS, 1); // decimals
+        walletPubkey.toBuffer().copy(initMintData, 2); // mint authority
+        initMintData.writeUInt8(1, 34); // has freeze authority = true
+        walletPubkey.toBuffer().copy(initMintData, 35); // freeze authority
+
+        const initMintIx = new solanaWeb3.TransactionInstruction({
+          keys: [
+            { pubkey: mintPubkey, isSigner: false, isWritable: true },
+            { pubkey: new solanaWeb3.PublicKey(SYSVAR_RENT), isSigner: false, isWritable: false },
+          ],
+          programId: new solanaWeb3.PublicKey(TOKEN_PROGRAM_ID),
+          data: initMintData,
+        });
+
+        // 3. Create Associated Token Account for the user
+        // We'll use the manual ATA derivation
+        const TOKEN_PROGRAM = new solanaWeb3.PublicKey(TOKEN_PROGRAM_ID);
+        const ASSOCIATED_PROGRAM = new solanaWeb3.PublicKey('ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL');
+
+        // Derive ATA
+        const seeds = [
+          walletPubkey.toBuffer(),
+          TOKEN_PROGRAM.toBuffer(),
+          mintPubkey.toBuffer(),
+        ];
+        const [ataAddress] = solanaWeb3.PublicKey.findProgramAddressSync(seeds, ASSOCIATED_PROGRAM);
+
+        const createAtaIx = new solanaWeb3.TransactionInstruction({
+          keys: [
+            { pubkey: walletPubkey, isSigner: true, isWritable: true },
+            { pubkey: ataAddress, isSigner: false, isWritable: true },
+            { pubkey: walletPubkey, isSigner: false, isWritable: false },
+            { pubkey: mintPubkey, isSigner: false, isWritable: false },
+            { pubkey: solanaWeb3.SystemProgram.programId, isSigner: false, isWritable: false },
+            { pubkey: TOKEN_PROGRAM, isSigner: false, isWritable: false },
+            { pubkey: new solanaWeb3.PublicKey(SYSVAR_RENT), isSigner: false, isWritable: false },
+          ],
+          programId: ASSOCIATED_PROGRAM,
+          data: Buffer.alloc(0),
+        });
+
+        // Build transaction
+        const { blockhash, lastValidBlockHeight } = await connection.getRecentBlockhash();
+        const tx1 = new solanaWeb3.Transaction().add(createAccountIx).add(initMintIx).add(createAtaIx);
+        tx1.recentBlockhash = blockhash;
+        tx1.feePayer = walletPubkey;
+        tx1.sign(mintKeypair);
+
+        showStatus('Signing transaction #1 (create + init + ATA)...', 'info');
+        const signedTx1 = await provider.signTransaction(tx1);
+        const txid1 = await connection.sendRawTransaction(signedTx1.serialize(), { skipPreflight: true });
+        await connection.confirmTransaction({ signature: txid1, blockhash, lastValidBlockHeight });
+
+        showStatus('Token account created! Minting supply...', 'info');
+
+        // 4. Mint tokens
+        const mintAmount = BigInt(SUPPLY) * BigInt(10 ** DECIMALS);
+        const mintData = Buffer.alloc(9);
+        mintData.writeUInt8(7, 0); // instruction 7 = mintTo
+        // amount as LE u64
+        const amountBuf = Buffer.alloc(8);
+        amountBuf.writeBigUInt64LE(mintAmount);
+        amountBuf.copy(mintData, 1);
+
+        const mintIx = new solanaWeb3.TransactionInstruction({
+          keys: [
+            { pubkey: mintPubkey, isSigner: false, isWritable: true },
+            { pubkey: ataAddress, isSigner: false, isWritable: true },
+            { pubkey: walletPubkey, isSigner: false, isWritable: false }, // mint authority
+          ],
+          programId: TOKEN_PROGRAM,
+          data: mintData,
+        });
+
+        const { blockhash: bh2, lastValidBlockHeight: lv2 } = await connection.getRecentBlockhash();
+        const tx2 = new solanaWeb3.Transaction().add(mintIx);
+        tx2.recentBlockhash = bh2;
+        tx2.feePayer = walletPubkey;
+
+        showStatus('Signing transaction #2 (mint supply)...', 'info');
+        const signedTx2 = await provider.signTransaction(tx2);
+        const txid2 = await connection.sendRawTransaction(signedTx2.serialize(), { skipPreflight: true });
+        await connection.confirmTransaction({ signature: txid2, blockhash: bh2, lastValidBlockHeight: lv2 });
+
+        // Save
+        localStorage.setItem('granny_mint', mintPubkey.toBase58());
+        localStorage.setItem('granny_ata', ataAddress.toBase58());
+
+        showStatus('[OK] $GRANNY token created! Mint: ' + mintPubkey.toBase58() + ' | Supply: ' + SUPPLY.toLocaleString() + ' | TX: ' + txid2.slice(0,12) + '...', 'succ');
+
+        createBtn.textContent = 'Token Created!';
+        $('go-swap-btn').classList.remove('hidden');
+
+      } catch (e) {
+        showStatus('[ERR] ' + (e.message || e), 'err');
+        console.error(e);
+        createBtn.disabled = false;
+        createBtn.textContent = 'Retry';
+      }
+    }
+
+    $('create-btn').addEventListener('click', createToken);
+  </script>
+  <div style="margin-top:16px;text-align:center;display:flex;justify-content:center;gap:20px">
+    <a href="faucet-helper.html" style="color:#f59e0b;font-size:14px;text-decoration:none">Get Devnet SOL</a>
+    <a href="index.html" style="color:#a855f7;font-size:14px;text-decoration:none">Back to Swap Page</a>
+  </div>
+</body>
+</html>
